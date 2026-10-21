@@ -8,19 +8,27 @@ CREATE VIEW sla_targets AS
     UNION ALL SELECT 'medium', 8.0, 72.0
     UNION ALL SELECT 'low', 24.0, 120.0;
 
+DROP VIEW IF EXISTS as_of;
+CREATE VIEW as_of AS
+    SELECT MAX(MAX(created_at), COALESCE(MAX(first_response_at), ''), COALESCE(MAX(resolved_at), '')) AS ts
+    FROM tickets;
+-- A target counts as met or missed once the event happened. If the event has not happened yet, it is a miss
+-- when the target time has already passed at the as_of moment, otherwise it is unknown (NULL, not counted).
 DROP VIEW IF EXISTS ticket_facts;
 CREATE VIEW ticket_facts AS
     SELECT t.ticket_id, t.category, t.priority, t.status,
            date(t.created_at, 'weekday 0', '-6 days') AS week,
            (julianday(t.first_response_at) - julianday(t.created_at)) * 24 AS response_hours,
            (julianday(t.resolved_at) - julianday(t.created_at)) * 24 AS resolution_hours,
-           CASE WHEN t.first_response_at IS NULL THEN NULL
-                WHEN (julianday(t.first_response_at) - julianday(t.created_at)) * 24 <= s.response_hours THEN 1
-                ELSE 0 END AS response_met,
-           CASE WHEN t.resolved_at IS NULL THEN NULL
-                WHEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 <= s.resolution_hours THEN 1
-                ELSE 0 END AS resolution_met
-    FROM tickets t JOIN sla_targets s ON s.priority = t.priority;
+           CASE WHEN t.first_response_at IS NOT NULL THEN
+                    (CASE WHEN (julianday(t.first_response_at) - julianday(t.created_at)) * 24 <= s.response_hours THEN 1 ELSE 0 END)
+                WHEN (julianday(a.ts) - julianday(t.created_at)) * 24 > s.response_hours THEN 0
+                ELSE NULL END AS response_met,
+           CASE WHEN t.resolved_at IS NOT NULL THEN
+                    (CASE WHEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 <= s.resolution_hours THEN 1 ELSE 0 END)
+                WHEN (julianday(a.ts) - julianday(t.created_at)) * 24 > s.resolution_hours THEN 0
+                ELSE NULL END AS resolution_met
+    FROM tickets t JOIN sla_targets s ON s.priority = t.priority CROSS JOIN as_of a;
 
 DROP VIEW IF EXISTS weekly_summary;
 CREATE VIEW weekly_summary AS
@@ -46,10 +54,6 @@ CREATE VIEW weekly_category_summary AS
            ROUND(100.0 * AVG(resolution_met), 2) AS resolution_sla_pct
     FROM ticket_facts GROUP BY week, category;
 
-DROP VIEW IF EXISTS as_of;
-CREATE VIEW as_of AS
-    SELECT MAX(MAX(created_at), COALESCE(MAX(first_response_at), ''), COALESCE(MAX(resolved_at), '')) AS ts
-    FROM tickets;
 
 DROP VIEW IF EXISTS backlog_age;
 CREATE VIEW backlog_age AS

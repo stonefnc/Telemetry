@@ -2,9 +2,9 @@
 import csv
 import random
 from datetime import datetime, timedelta
+from pathlib import Path
 
-COLUMNS = ["ticket_id", "category", "priority", "created_at", "first_response_at",
-           "resolved_at", "status", "sla_met"]
+from telemetry.constants import COLUMNS, SLA_TARGETS, TIME_FORMAT
 
 # category: (share of tickets, resolution time multiplier)
 CATEGORIES = {
@@ -17,12 +17,9 @@ CATEGORIES = {
     "account changes": (0.10, 0.9),
 }
 PRIORITY_SHARE = {"low": 0.30, "medium": 0.50, "high": 0.16, "urgent": 0.04}
-# priority: (response target hours, resolution target hours)
-SLA_TARGETS = {"urgent": (1, 8), "high": (4, 24), "medium": (8, 72), "low": (24, 120)}
 
 START = datetime(2023, 8, 7)  # a Monday, start of school year one
-END = datetime(2025, 6, 27)  # tickets are as of this date, later ones stay open
-TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+END = datetime(2025, 6, 28)  # end of the last Friday, tickets are as of this moment, later events stay open
 
 
 def week_weight(week_start):
@@ -34,7 +31,7 @@ def week_weight(week_start):
         return 2.0
     if m in (6, 7) and not (m == 6 and week_start.day < 14):
         return 0.3
-    if m == 12 and week_start.day > 18 or m == 1 and week_start.day < 4:
+    if (m == 12 and week_start.day > 18) or (m == 1 and week_start.day < 4):
         return 0.4
     return 1.0
 
@@ -68,8 +65,11 @@ def generate(n=2500, seed=42):
         resp_h = resp_t * load * rng.lognormvariate(-1.0, 0.9)
         res_h = res_t * CATEGORIES[cat][1] * load * rng.lognormvariate(-1.2, 0.9)
         res_h = max(res_h, resp_h)
-        first = c + timedelta(hours=resp_h)
-        done = c + timedelta(hours=res_h)
+        # truncate to whole seconds like the CSV, so sla_met matches what the views compute from the timestamps
+        first = (c + timedelta(hours=resp_h)).replace(microsecond=0)
+        done = (c + timedelta(hours=res_h)).replace(microsecond=0)
+        resp_h = (first - c).total_seconds() / 3600
+        res_h = (done - c).total_seconds() / 3600
         if done > END:
             status, resolved, sla = "open", "", ""
             first_s = first.strftime(TIME_FORMAT) if first <= END else ""
@@ -83,7 +83,11 @@ def generate(n=2500, seed=42):
     return rows
 
 
-def write_csv(path, rows):
+def write_csv(path, rows, overwrite=False):
+    path = Path(path)
+    if path.exists() and not overwrite:
+        raise FileExistsError(f"{path} already exists, refusing to overwrite it")
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)
         w.writeheader()
@@ -92,6 +96,6 @@ def write_csv(path, rows):
 
 if __name__ == "__main__":
     import sys
-    out = sys.argv[1] if len(sys.argv) > 1 else "data/tickets.csv"
+    out = sys.argv[1] if len(sys.argv) > 1 else "data/generated/tickets.csv"
     write_csv(out, generate())
     print(f"wrote {out}")

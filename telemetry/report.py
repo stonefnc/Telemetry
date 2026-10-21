@@ -1,4 +1,5 @@
 """One page HTML weekly SLA report built from the SQL views. No external assets, charts are inline SVG."""
+from datetime import date, timedelta
 from html import escape
 
 W, H, PAD = 720, 180, 28
@@ -40,16 +41,21 @@ def _table(headers, rows):
 
 def build_report(conn):
     q = lambda sql: conn.execute(sql).fetchall()
-    weeks = q("SELECT week, created, resolved, close_rate, avg_first_response_hours, avg_resolution_hours, "
+    found = q("SELECT week, created, resolved, close_rate, avg_first_response_hours, avg_resolution_hours, "
               "response_sla_pct, resolution_sla_pct FROM weekly_summary ORDER BY week")
-    if not weeks:
+    if not found:
         raise ValueError("no tickets loaded, nothing to report")
+    # fill weeks without tickets so the charts keep a true time axis and "latest 8 weeks" is 8 calendar weeks
+    known, weeks, day = {w[0]: w for w in found}, [], date.fromisoformat(found[0][0])
+    while day <= date.fromisoformat(found[-1][0]):
+        weeks.append(known.get(day.isoformat(), (day.isoformat(), 0, 0, None, None, None, None, None)))
+        day += timedelta(days=7)
     total = q("SELECT COUNT(*), COUNT(resolution_hours), ROUND(AVG(response_hours), 1), "
               "ROUND(AVG(resolution_hours), 1), ROUND(100.0 * AVG(response_met), 1), "
               "ROUND(100.0 * AVG(resolution_met), 1) FROM ticket_facts")[0]
     by_cat = q("SELECT category, COUNT(*), ROUND(AVG(response_hours), 1), ROUND(AVG(resolution_hours), 1), "
-               "ROUND(100.0 * AVG(response_met), 1), ROUND(100.0 * AVG(resolution_met), 1) "
-               "FROM ticket_facts GROUP BY category ORDER BY 6")
+               "ROUND(100.0 * AVG(response_met), 1), ROUND(100.0 * AVG(resolution_met), 1) AS res_sla "
+               "FROM ticket_facts GROUP BY category ORDER BY res_sla IS NULL, res_sla")
     backlog = q("SELECT bucket, tickets FROM backlog_age_buckets ORDER BY bucket")
     as_of = q("SELECT substr(ts, 1, 10) FROM as_of")[0][0]
     kpi = _table(["Tickets", "Resolved", "Avg first response (h)", "Avg resolution (h)", "Response SLA %", "Resolution SLA %"],

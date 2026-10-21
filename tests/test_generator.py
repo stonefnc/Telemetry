@@ -1,8 +1,11 @@
 from collections import Counter
 
-from generator.generate import CATEGORIES, COLUMNS, END, SLA_TARGETS, START, generate, write_csv
-
 import csv
+
+import pytest
+
+from generator.generate import CATEGORIES, END, START, generate, write_csv
+from telemetry.constants import COLUMNS, SLA_TARGETS, TIME_FORMAT
 
 
 def test_count_columns_and_ids():
@@ -21,7 +24,7 @@ def test_categories_priorities_and_dates():
     rows = generate()
     assert {r["category"] for r in rows} == set(CATEGORIES)
     assert {r["priority"] for r in rows} <= set(SLA_TARGETS)
-    assert all(START.strftime("%Y-%m-%d") <= r["created_at"] <= END.strftime("%Y-%m-%d") + "~" for r in rows)
+    assert all(START.strftime(TIME_FORMAT) <= r["created_at"] < END.strftime(TIME_FORMAT) for r in rows)
 
 
 def test_back_to_school_is_busy():
@@ -49,3 +52,13 @@ def test_write_csv_roundtrip(tmp_path):
     with open(p, newline="", encoding="utf-8") as f:
         got = list(csv.DictReader(f))
     assert len(got) == 50 and list(got[0]) == COLUMNS
+
+def test_write_csv_refuses_to_overwrite_and_makes_folders(tmp_path):
+    p = tmp_path / "new" / "dir" / "t.csv"
+    write_csv(p, generate(5))
+    p.write_text("keep me")
+    with pytest.raises(FileExistsError):
+        write_csv(p, generate(5))
+    assert p.read_text() == "keep me"
+    write_csv(p, generate(5), overwrite=True)
+    assert p.read_text().startswith("ticket_id")
