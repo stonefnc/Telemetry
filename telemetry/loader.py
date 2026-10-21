@@ -15,6 +15,7 @@ from telemetry.constants import COLUMNS, SLA_TARGETS, TIME_FORMAT
 
 SCHEMA = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 VIEWS = SCHEMA.with_name("views.sql")
+VIEWS_POSTGRES = SCHEMA.with_name("views.postgres.sql")
 
 TS_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
 ID_RE = re.compile(r"[A-Za-z0-9-]{1,20}")
@@ -58,7 +59,7 @@ def pg_dsn():
 def connect(db_path="data/telemetry.db"):
     """SQLite by default. Set TELEMETRY_PG_DSN (environment or .env) to use PostgreSQL instead.
 
-    Returns (connection, placeholder). The PostgreSQL path is untested here, it needs psycopg and a server.
+    Returns (connection, placeholder). The PostgreSQL option needs psycopg (version 3) and a server.
     """
     dsn = pg_dsn()
     if dsn:
@@ -180,10 +181,14 @@ def load_csv(path, conn, placeholder="?"):
     return result
 
 
+def is_postgres(conn):
+    return type(conn).__module__.split(".")[0] == "psycopg"
+
+
 def apply_views(conn):
-    """Create or refresh the reporting views (SQLite syntax)."""
+    """Create or refresh the reporting views, using the PostgreSQL variant on a PostgreSQL connection."""
     cur = conn.cursor()
-    for stmt in VIEWS.read_text().split(";"):
+    for stmt in (VIEWS_POSTGRES if is_postgres(conn) else VIEWS).read_text().split(";"):
         if stmt.strip():
             cur.execute(stmt)
     conn.commit()

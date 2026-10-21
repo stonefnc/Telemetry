@@ -1,5 +1,6 @@
 """One page HTML weekly SLA report built from the SQL views. No external assets, charts are inline SVG."""
 from datetime import date, timedelta
+from decimal import Decimal
 from html import escape
 
 W, H, PAD = 720, 180, 28
@@ -40,7 +41,8 @@ def _table(headers, rows):
 
 
 def build_report(conn):
-    q = lambda sql: conn.execute(sql).fetchall()
+    # PostgreSQL returns numeric as Decimal, show it the way SQLite shows a float
+    q = lambda sql: [tuple(float(v) if isinstance(v, Decimal) else v for v in r) for r in conn.execute(sql).fetchall()]
     found = q("SELECT week, created, resolved, close_rate, avg_first_response_hours, avg_resolution_hours, "
               "response_sla_pct, resolution_sla_pct FROM weekly_summary ORDER BY week")
     if not found:
@@ -55,9 +57,9 @@ def build_report(conn):
               "ROUND(100.0 * AVG(resolution_met), 1) FROM ticket_facts")[0]
     by_cat = q("SELECT category, COUNT(*), ROUND(AVG(response_hours), 1), ROUND(AVG(resolution_hours), 1), "
                "ROUND(100.0 * AVG(response_met), 1), ROUND(100.0 * AVG(resolution_met), 1) AS res_sla "
-               "FROM ticket_facts GROUP BY category ORDER BY res_sla IS NULL, res_sla")
+               "FROM ticket_facts GROUP BY category ORDER BY res_sla NULLS LAST")
     backlog = q("SELECT bucket, tickets FROM backlog_age_buckets ORDER BY bucket")
-    as_of = q("SELECT substr(ts, 1, 10) FROM as_of")[0][0]
+    as_of = q("SELECT substr(CAST(ts AS TEXT), 1, 10) FROM as_of")[0][0]
     kpi = _table(["Tickets", "Resolved", "Avg first response (h)", "Avg resolution (h)", "Response SLA %", "Resolution SLA %"],
                  [total])
     latest = _table(["Week", "Created", "Resolved", "Close rate", "Avg first response (h)", "Avg resolution (h)",

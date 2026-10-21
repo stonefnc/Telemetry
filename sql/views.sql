@@ -1,4 +1,4 @@
--- Reporting views. SQLite syntax (date and julianday). A PostgreSQL variant is planned.
+-- Reporting views. SQLite syntax (date and julianday). The PostgreSQL variant is views.postgres.sql, keep the two in step.
 -- Weeks start on Monday and are bucketed by created_at. SLA targets mirror generator.generate.SLA_TARGETS.
 
 DROP VIEW IF EXISTS sla_targets;

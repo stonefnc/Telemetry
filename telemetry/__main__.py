@@ -5,11 +5,16 @@ import sys
 from pathlib import Path
 
 from generator.generate import generate, write_csv
-from telemetry.loader import LoadError, apply_views, connect, load_csv, pg_dsn
+from telemetry.loader import LoadError, apply_views, connect, load_csv
 from telemetry.report import build_report
 
 # the tool's own scratch file, git-ignored. `all` rewrites it on every run, so it never takes a user file.
 DEFAULT_CSV = "data/generated/tickets.csv"
+try:
+    from psycopg import Error as _PgError
+    DB_ERRORS = _PgError
+except ImportError:  # psycopg is optional, SQLite needs nothing else
+    DB_ERRORS = sqlite3.Error
 
 
 def _generate(args):
@@ -22,8 +27,15 @@ def _generate(args):
     return path
 
 
+def _connect(db):
+    try:
+        return connect(db)
+    except DB_ERRORS:
+        sys.exit("cannot connect to the database, check TELEMETRY_PG_DSN")
+
+
 def _load(args, path):
-    conn, ph = connect(args.db)
+    conn, ph = _connect(args.db)
     try:
         res = load_csv(path, conn, ph)
     except FileNotFoundError:
@@ -38,13 +50,11 @@ def _load(args, path):
 
 
 def _report(args):
-    if pg_dsn():
-        sys.exit("report needs the SQLite views, the PostgreSQL view variant is planned")
-    conn, _ = connect(args.db)
+    conn, _ = _connect(args.db)
     try:
         apply_views(conn)
         html = build_report(conn)
-    except sqlite3.Error:
+    except (sqlite3.Error, DB_ERRORS):
         sys.exit("the database has no loaded tickets, run load first")
     except ValueError as e:
         sys.exit(f"report failed: {e}")

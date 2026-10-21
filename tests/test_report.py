@@ -66,7 +66,8 @@ def test_report_before_load_is_a_clean_message(tmp_path):
         main(["report", "--db", str(tmp_path / "empty.db"), "--out", str(tmp_path / "r.html")])
 
 
-def test_postgres_selected_stops_report_with_a_message(tmp_path, monkeypatch):
-    monkeypatch.setenv("TELEMETRY_PG_DSN", "postgresql://fake/db")
-    with pytest.raises(SystemExit, match="planned"):
+def test_unreachable_postgres_stops_report_with_a_message(tmp_path, monkeypatch):
+    pytest.importorskip("psycopg")
+    monkeypatch.setenv("TELEMETRY_PG_DSN", "postgresql://fake.invalid/db?connect_timeout=2")
+    with pytest.raises(SystemExit, match="cannot connect"):
         main(["report", "--db", str(tmp_path / "t.db")])

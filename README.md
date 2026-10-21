@@ -4,7 +4,7 @@ Load a help desk ticket CSV into SQL and produce a weekly SLA report. All data i
 
 ## Usage
 
-Requires Python 3.11 or newer. The app uses only the standard library. pytest is needed for the tests.
+Requires Python 3.11 or newer. The app uses only the standard library for SQLite. pytest is needed for the tests. The optional PostgreSQL path needs psycopg 3 (`pip install -r requirements-postgres.txt`).
 
     pip install -r requirements.txt
     python -m telemetry all
@@ -23,7 +23,7 @@ Options: `--csv` (generate and load only, default data/generated/tickets.csv), `
 
 1. Generator: about 2,500 tickets over two school years (2023-08-07 to 2025-06-27). Categories are device repair, iPad setup, Chromebook loss, password reset, Wi-Fi, printing and account changes. August and September are busier and slower, summer and the holidays are quiet, and some tickets miss their SLA. Tickets still unresolved at the end date stay open.
 2. Schema and loader: the table has ticket_id, category, priority, created_at, first_response_at, resolved_at, status and sla_met. The loader checks the CSV header before reading any row and refuses the whole file if the columns are not exactly these eight, so a names, emails or descriptions column is never read. A byte order mark, spaces around names and a different column order are accepted. Ids must look like T-00001, categories are capped at 40 characters and timestamps must be YYYY-MM-DD HH:MM:SS, between 2000 and tomorrow. Messages name fields and line numbers and never print cell values. Bad rows (bad dates, unknown priority or status, short rows, duplicate ids, mismatched status) are listed with their line number and the rest still load.
-3. SQL views in `sql/views.sql`: weekly close rate, average first response, average resolution, response and resolution SLA percentage by week and by category, and backlog age with age buckets. SLA is computed from the timestamps against per-priority targets (urgent 1h and 8h, high 4h and 24h, medium 8h and 72h, low 24h and 120h for response and resolution), not read from the sla_met column. Weeks start on Monday. A ticket that is still open and already past a target counts as a miss for that target. A ticket still within its target is not counted yet.
+3. SQL views in `sql/views.sql` (SQLite) and `sql/views.postgres.sql` (PostgreSQL, same columns and rules): weekly close rate, average first response, average resolution, response and resolution SLA percentage by week and by category, and backlog age with age buckets. SLA is computed from the timestamps against per-priority targets (urgent 1h and 8h, high 4h and 24h, medium 8h and 72h, low 24h and 120h for response and resolution), not read from the sla_met column. Weeks start on Monday. A ticket that is still open and already past a target counts as a miss for that target. A ticket still within its target is not counted yet.
 4. Report: one self-contained HTML page with an overall table, tickets created per week, SLA percentage per week, the latest 8 weeks, a by-category table and open backlog by age. Charts are inline SVG.
 
 ## Report preview
@@ -32,9 +32,11 @@ Screenshot placeholder. To be added after the layout is checked in a browser.
 
 ## Status
 
-- Tests: 53 pytest tests pass on Python 3.14.7 (`python -m pytest`). They are not yet run on 3.11, though the code avoids anything newer than 3.11.
-- SQLite is the tested path.
-- PostgreSQL: loading is supported in code. Set `TELEMETRY_PG_DSN` in the environment or in a git-ignored `.env` file in the folder you run from (copy .env.example) and install psycopg. This path is untested, with no server available during the build. The views use SQLite date functions, so a PostgreSQL view variant is planned and `report` stops with a message when PostgreSQL is selected.
+- Tests: 66 pytest tests pass on Python 3.14.7 when a PostgreSQL server is available (`python -m pytest`). Without one, 55 pass and 11 PostgreSQL tests are skipped, and the skips are reported as skips, not passes. They are not yet run on Python 3.11, though the code avoids anything newer than 3.11.
+- SQLite: tested on every run.
+- PostgreSQL: tested against a real PostgreSQL 16.4 server (Windows x64 binaries) on 2026-10-21, with psycopg 3.3.6. No other PostgreSQL version has been tried. The tests cover loading, each view matching SQLite on the same 2,500 generated tickets, hand-checked numbers, the report HTML matching the SQLite report, and the command line end to end. The weekly average hours can differ by 0.01 from SQLite where a value sits exactly on a rounding tie, because SQLite works from floating point julian days. Nothing here is run in CI, so PostgreSQL is only checked when someone runs the tests against a server.
+- To use PostgreSQL, set `TELEMETRY_PG_DSN` in the environment or in a git-ignored `.env` file in the folder you run from (copy .env.example). `load` then replaces the `tickets` table in that database and `report` builds its views there.
+- To run the PostgreSQL tests, start any PostgreSQL server, install psycopg and set `TELEMETRY_PG_TEST_DSN` to a scratch database, for example `postgresql://user:password@localhost:5432/scratch`, then run `python -m pytest tests/test_postgres.py -rs`. Each test creates and drops its own schema. Leave the variable unset and those tests skip.
 - The report layout and charts are not yet checked visually in a browser. The tests only check the HTML structure.
 
 ## Time zones
