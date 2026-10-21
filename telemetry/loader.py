@@ -8,6 +8,7 @@ from pathlib import Path
 from generator.generate import COLUMNS, SLA_TARGETS, TIME_FORMAT
 
 SCHEMA = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
+VIEWS = SCHEMA.with_name("views.sql")
 
 
 class ColumnError(ValueError):
@@ -101,3 +102,11 @@ def load_csv(path, conn, placeholder="?"):
             result.loaded += 1
     conn.commit()
     return result
+
+def apply_views(conn):
+    """Create or refresh the reporting views (SQLite syntax)."""
+    cur = conn.cursor()
+    for stmt in VIEWS.read_text().split(";"):
+        if stmt.strip():
+            cur.execute(stmt)
+    conn.commit()
