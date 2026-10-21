@@ -15,7 +15,7 @@ from generator.generate import generate, write_csv
 from telemetry.__main__ import main
 from telemetry.constants import SLA_TARGETS
 from telemetry.loader import VIEWS_POSTGRES, apply_views, is_postgres, load_csv
-from telemetry.report import build_report
+from telemetry.report import build_report, collect, write_exports
 
 HEADER = "ticket_id,category,priority,created_at,first_response_at,resolved_at,status,sla_met\n"
 SMALL = HEADER + "\n".join([
@@ -172,3 +172,44 @@ def test_command_line_runs_end_to_end_on_postgres(tmp_path, monkeypatch, pg_dsn_
     main(["all", "--count", "300"])
     html = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert "Telemetry weekly SLA report" in html and "Open backlog by age" in html
+
+
+@pytest.mark.parametrize("weeks", [None, 8])
+def test_collected_report_data_matches_sqlite_with_and_without_a_week_limit(tmp_path, pg, weeks):
+    p = tmp_path / "g.csv"
+    write_csv(p, generate(2500))
+    load_csv(p, pg, "%s")
+    apply_views(pg)
+    got, want = collect(pg, weeks), collect(_sqlite(p), weeks)
+    assert got.keys() == want.keys()
+    for key in got:
+        if key in ("limit", "as_of"):
+            assert got[key] == want[key]
+        elif key == "by_cat":
+            assert len(got[key]) == len(want[key])  # tie order between equal SLA values can differ
+        else:
+            as_rows = lambda v: sorted(v if key != "total" else [v], key=str)
+            got_rows, want_rows = as_rows(got[key]), as_rows(want[key])
+            assert len(got_rows) == len(want_rows)
+            assert got_rows == [pytest.approx(w, abs=0.11) for w in want_rows]
+
+
+def test_exports_from_postgres_have_the_same_files_and_shape(tmp_path, pg):
+    p = tmp_path / "g.csv"
+    write_csv(p, generate(500))
+    load_csv(p, pg, "%s")
+    apply_views(pg)
+    write_exports(collect(pg, 6), tmp_path / "pg")
+    write_exports(collect(_sqlite(p), 6), tmp_path / "lite")
+    assert sorted(f.name for f in (tmp_path / "pg").iterdir()) == sorted(f.name for f in (tmp_path / "lite").iterdir())
+    for f in (tmp_path / "pg").glob("*.csv"):
+        pg_rows, lite_rows = f.read_text().splitlines(), (tmp_path / "lite" / f.name).read_text().splitlines()
+        assert pg_rows[0] == lite_rows[0] and len(pg_rows) == len(lite_rows)
+
+
+def test_command_line_weeks_and_export_on_postgres(tmp_path, monkeypatch, pg_dsn_scoped):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TELEMETRY_PG_DSN", pg_dsn_scoped)
+    main(["all", "--count", "300", "--weeks", "5", "--export", "out"])
+    assert len((tmp_path / "out" / "weekly_summary.csv").read_text().splitlines()) == 6
+    assert "Showing the last 5 weeks" in (tmp_path / "report.html").read_text(encoding="utf-8")

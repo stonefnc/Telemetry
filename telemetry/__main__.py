@@ -6,7 +6,7 @@ from pathlib import Path
 
 from generator.generate import generate, write_csv
 from telemetry.loader import LoadError, apply_views, connect, load_csv
-from telemetry.report import build_report
+from telemetry.report import collect, render, write_exports
 
 # the tool's own scratch file, git-ignored. `all` rewrites it on every run, so it never takes a user file.
 DEFAULT_CSV = "data/generated/tickets.csv"
@@ -53,7 +53,8 @@ def _report(args):
     conn, _ = _connect(args.db)
     try:
         apply_views(conn)
-        html = build_report(conn)
+        data = collect(conn, args.weeks)
+        html = render(data)
     except (sqlite3.Error, DB_ERRORS):
         sys.exit("the database has no loaded tickets, run load first")
     except ValueError as e:
@@ -62,6 +63,9 @@ def _report(args):
         conn.close()
     Path(args.out).write_text(html, encoding="utf-8")
     print(f"wrote {args.out}")
+    if args.export:
+        for name in write_exports(data, args.export, args.export_format):
+            print(f"wrote {Path(args.export) / name}")
 
 
 def main(argv=None):
@@ -71,9 +75,18 @@ def main(argv=None):
     p.add_argument("--force", action="store_true", help="let generate overwrite an existing file")
     p.add_argument("--db", default="data/telemetry.db")
     p.add_argument("--out", default="report.html")
+    p.add_argument("--weeks", type=int, help="report and export only the most recent N weeks (default all)")
+    p.add_argument("--export", metavar="DIR", help="also write the report tables to DIR as CSV and JSON")
+    p.add_argument("--export-format", default="csv,json", help="csv, json or csv,json (default both)")
     p.add_argument("--count", type=int, default=2500)
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args(argv)
+    formats = set(args.export_format.split(","))
+    if not formats <= {"csv", "json"}:
+        sys.exit("--export-format takes csv, json or csv,json")
+    args.export_format = formats
+    if args.weeks is not None and args.weeks < 1:
+        sys.exit("--weeks must be 1 or more")
     if args.command == "all" and args.csv:
         sys.exit(f"all always writes its own {DEFAULT_CSV}, use generate, load and report to work with another file")
     path = args.csv or DEFAULT_CSV

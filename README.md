@@ -15,9 +15,24 @@ This generates the fake tickets, loads them into SQLite and writes `report.html`
     python -m telemetry load
     python -m telemetry report
 
-Options: `--csv` (generate and load only, default data/generated/tickets.csv), `--force` (lets generate overwrite an existing file), `--db` (default data/telemetry.db), `--out` (default report.html), `--count` (default 2500) and `--seed` (default 42). The same seed always produces the same tickets.
+Options: `--weeks`, `--export`, `--export-format` (report, see below), `--csv` (generate and load only, default data/generated/tickets.csv), `--force` (lets generate overwrite an existing file), `--db` (default data/telemetry.db), `--out` (default report.html), `--count` (default 2500) and `--seed` (default 42). The same seed always produces the same tickets.
 
 `all` always rewrites its own scratch file data/generated/tickets.csv and refuses `--csv`, so it can never overwrite a file of yours. `generate` refuses to overwrite an existing file unless `--force` is given. To load your own CSV, run `load --csv <file>` then `report`.
+
+## Report options and exports
+
+`report --weeks N` limits the report to the most recent N calendar weeks, counted back from the last week that has tickets. It applies to the overall table, the weekly tables and charts, the by-category table and the exports. Without it all weeks are used. The open backlog is a snapshot of tickets open at the end of the data, so it is never limited.
+
+`report --export DIR` also writes the report tables to DIR, as CSV and JSON by default (`--export-format csv`, `json` or `csv,json`). Without `--export` only the HTML is written. The HTML and the exports are built from one set of query results. Four tables are exported, one file per table and format:
+
+| File | Columns |
+|---|---|
+| overall | tickets, resolved, avg_first_response_hours, avg_resolution_hours, response_sla_pct, resolution_sla_pct |
+| weekly_summary | week, created, resolved, close_rate, avg_first_response_hours, avg_resolution_hours, response_sla_pct, resolution_sla_pct |
+| weekly_category_summary | week, category, then the same columns as weekly_summary after week |
+| backlog_age_buckets | bucket, tickets |
+
+weekly_summary includes weeks with no tickets, with 0 for created and resolved and empty cells (null in JSON) for the rest. weekly_category_summary has only the weeks and categories that have tickets. The by-category table shown in the HTML is an overall roll-up per category and is not exported. JSON files are a list of objects keyed by column name. Percentages are 0 to 100, close_rate is 0 to 1 and hours are decimal hours.
 
 ## What it does
 
@@ -32,9 +47,10 @@ Screenshot placeholder. To be added after the layout is checked in a browser.
 
 ## Status
 
-- Tests: 66 pytest tests pass on Python 3.14.7 when a PostgreSQL server is available (`python -m pytest`). Without one, 55 pass and 11 PostgreSQL tests are skipped, and the skips are reported as skips, not passes. They are not yet run on Python 3.11, though the code avoids anything newer than 3.11.
+- Tests: 83 pytest tests pass when a PostgreSQL server is available. Without one, 68 pass and 15 PostgreSQL tests are skipped, and they show as skips, not passes. Run with `python -m pytest -rs` to see the skips.
+- Python: the full suite was run on Python 3.14.7 and on Python 3.11.9 (with and without the PostgreSQL server, same counts on both). Other versions have not been run.
 - SQLite: tested on every run.
-- PostgreSQL: tested against a real PostgreSQL 16.4 server (Windows x64 binaries) on 2026-10-21, with psycopg 3.3.6. No other PostgreSQL version has been tried. The tests cover loading, each view matching SQLite on the same 2,500 generated tickets, hand-checked numbers, the report HTML matching the SQLite report, and the command line end to end. The weekly average hours can differ by 0.01 from SQLite where a value sits exactly on a rounding tie, because SQLite works from floating point julian days. Nothing here is run in CI, so PostgreSQL is only checked when someone runs the tests against a server.
+- PostgreSQL: tested against a real PostgreSQL 16.4 server (Windows x64 binaries) on 2026-10-21, with psycopg 3.3.6. No other PostgreSQL version has been tried. The tests cover loading, each view matching SQLite on the same 2,500 generated tickets, hand-checked numbers, the report HTML matching the SQLite report, the `--weeks` limit and the exports matching SQLite, and the command line end to end. The weekly average hours can differ by 0.01 from SQLite where a value sits exactly on a rounding tie, because SQLite works from floating point julian days. Nothing here is run in CI, so PostgreSQL is only checked when someone runs the tests against a server.
 - To use PostgreSQL, set `TELEMETRY_PG_DSN` in the environment or in a git-ignored `.env` file in the folder you run from (copy .env.example). `load` then replaces the `tickets` table in that database and `report` builds its views there.
 - To run the PostgreSQL tests, start any PostgreSQL server, install psycopg and set `TELEMETRY_PG_TEST_DSN` to a scratch database, for example `postgresql://user:password@localhost:5432/scratch`, then run `python -m pytest tests/test_postgres.py -rs`. Each test creates and drops its own schema. Leave the variable unset and those tests skip.
 - The report layout and charts are not yet checked visually in a browser. The tests only check the HTML structure.
