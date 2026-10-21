@@ -99,3 +99,28 @@ def test_sla_targets_view_matches_constants():
     apply_views(conn)
     got = {p: (r, s) for p, r, s in conn.execute("SELECT priority, response_hours, resolution_hours FROM sla_targets")}
     assert got == {p: (float(r), float(s)) for p, (r, s) in SLA_TARGETS.items()}
+
+
+def _boundary_rows(offset_seconds):
+    """Tickets whose response and resolution take exactly the target hours plus offset_seconds, at many start times."""
+    from datetime import datetime, timedelta
+    fmt = "%Y-%m-%d %H:%M:%S"
+    rows = []
+    for i in range(300):
+        start = datetime(2024, 1, 1) + timedelta(seconds=i * 86413 + 7)
+        for prio, (resp, res) in SLA_TARGETS.items():
+            first = start + timedelta(hours=resp, seconds=offset_seconds)
+            done = start + timedelta(hours=res, seconds=offset_seconds)
+            rows.append(f"{prio[0]}{i},Wi-Fi,{prio},{start.strftime(fmt)},{first.strftime(fmt)},{done.strftime(fmt)},resolved,")
+    return rows
+
+
+def test_an_event_exactly_on_its_target_counts_as_met(tmp_path):
+    # julianday arithmetic is floating point, so a large share of exact-target tickets used to come out as misses
+    conn = _db(tmp_path, *_boundary_rows(0))
+    assert conn.execute("SELECT COUNT(*), SUM(response_met), SUM(resolution_met) FROM ticket_facts").fetchone()         == (1200, 1200, 1200)
+
+
+def test_an_event_one_second_past_its_target_counts_as_missed(tmp_path):
+    conn = _db(tmp_path, *_boundary_rows(1))
+    assert conn.execute("SELECT SUM(response_met), SUM(resolution_met) FROM ticket_facts").fetchone() == (0, 0)

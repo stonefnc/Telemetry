@@ -84,10 +84,16 @@ def test_csv_and_json_hold_the_same_rows(big, tmp_path):
 
 
 def test_html_and_export_come_from_the_same_numbers(small, tmp_path):
-    data = collect(small)
+    write_exports(collect(small), tmp_path)
     html = build_report(small)
-    for week in data["weeks"]:
-        assert f"<td>{week[0]}</td><td>{week[1]}</td>" in html
+    cells = lambda row: "<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>"
+    weekly = _read_csv(tmp_path / "weekly_summary.csv")[1:]
+    assert len(weekly) == 3
+    for row in weekly:
+        assert cells(row) in html
+    assert cells(_read_csv(tmp_path / "overall.csv")[1]) in html
+    for row in _read_csv(tmp_path / "backlog_age_buckets.csv")[1:]:
+        assert cells(row) in html
 
 
 def test_a_format_can_be_left_out(small, tmp_path):
@@ -105,8 +111,29 @@ def test_weeks_limits_weekly_tables_and_totals_but_not_the_backlog(big):
 
 
 def test_weeks_larger_than_the_data_gives_everything(small):
-    assert collect(small, weeks=500)["weeks"][-3:] == collect(small)["weeks"]
-    assert collect(small, weeks=500)["total"] == collect(small)["total"]
+    # no empty weeks are added before the first week that has tickets, and a huge value does not overflow
+    for weeks in (3, 4, 500, 10 ** 12):
+        got = collect(small, weeks=weeks)
+        assert [w[0] for w in got["weeks"]] == ["2024-01-01", "2024-01-08", "2024-01-15"]
+        assert got["weeks"] == collect(small)["weeks"] and got["total"] == collect(small)["total"]
+        assert got["weekly_category"] == collect(small)["weekly_category"] and got["by_cat"] == collect(small)["by_cat"]
+
+
+def test_weeks_of_one_is_only_the_last_week(small):
+    got = collect(small, weeks=1)
+    assert [w[0] for w in got["weeks"]] == ["2024-01-15"] and got["total"][0] == 2
+    assert {r[0] for r in got["weekly_category"]} == {"2024-01-15"}
+
+
+def test_category_tables_are_ordered_by_name_and_unrated_categories_come_last(tmp_path):
+    ok = "2024-01-01 09:00:00,2024-01-01 10:00:00,2024-01-01 12:00:00,resolved,1"
+    text = HEADER + "\n".join([f"Z1,zeta,low,{ok}", f"A1,Alpha,low,{ok}", f"B1,beta,low,{ok}",
+                               # open and still within target at the end of the data, so it has no SLA rate yet
+                               "N1,Aaa,low,2024-01-02 09:00:00,,,open,"]) + "\n"
+    data = collect(_db(tmp_path / "c.csv", text))
+    # equal SLA rates are ordered by name in code order, so every database gives the same table
+    assert [r[0] for r in data["by_cat"]] == ["Alpha", "beta", "zeta", "Aaa"]
+    assert [r[1] for r in data["weekly_category"]] == ["Aaa", "Alpha", "beta", "zeta"]
 
 
 def test_default_report_is_unchanged_and_says_nothing_about_a_limit(small):

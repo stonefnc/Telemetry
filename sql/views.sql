@@ -1,5 +1,6 @@
 -- Reporting views. SQLite syntax (date and julianday). The PostgreSQL variant is views.postgres.sql, keep the two in step.
 -- Weeks start on Monday and are bucketed by created_at. SLA targets mirror generator.generate.SLA_TARGETS.
+-- Durations come from whole seconds (strftime '%s'), not julianday, so an event exactly on its target counts as met.
 
 DROP VIEW IF EXISTS sla_targets;
 CREATE VIEW sla_targets AS
@@ -18,15 +19,15 @@ DROP VIEW IF EXISTS ticket_facts;
 CREATE VIEW ticket_facts AS
     SELECT t.ticket_id, t.category, t.priority, t.status,
            date(t.created_at, 'weekday 0', '-6 days') AS week,
-           (julianday(t.first_response_at) - julianday(t.created_at)) * 24 AS response_hours,
-           (julianday(t.resolved_at) - julianday(t.created_at)) * 24 AS resolution_hours,
+           (strftime('%s', t.first_response_at) - strftime('%s', t.created_at)) / 3600.0 AS response_hours,
+           (strftime('%s', t.resolved_at) - strftime('%s', t.created_at)) / 3600.0 AS resolution_hours,
            CASE WHEN t.first_response_at IS NOT NULL THEN
-                    (CASE WHEN (julianday(t.first_response_at) - julianday(t.created_at)) * 24 <= s.response_hours THEN 1 ELSE 0 END)
-                WHEN (julianday(a.ts) - julianday(t.created_at)) * 24 > s.response_hours THEN 0
+                    (CASE WHEN (strftime('%s', t.first_response_at) - strftime('%s', t.created_at)) / 3600.0 <= s.response_hours THEN 1 ELSE 0 END)
+                WHEN (strftime('%s', a.ts) - strftime('%s', t.created_at)) / 3600.0 > s.response_hours THEN 0
                 ELSE NULL END AS response_met,
            CASE WHEN t.resolved_at IS NOT NULL THEN
-                    (CASE WHEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 <= s.resolution_hours THEN 1 ELSE 0 END)
-                WHEN (julianday(a.ts) - julianday(t.created_at)) * 24 > s.resolution_hours THEN 0
+                    (CASE WHEN (strftime('%s', t.resolved_at) - strftime('%s', t.created_at)) / 3600.0 <= s.resolution_hours THEN 1 ELSE 0 END)
+                WHEN (strftime('%s', a.ts) - strftime('%s', t.created_at)) / 3600.0 > s.resolution_hours THEN 0
                 ELSE NULL END AS resolution_met
     FROM tickets t JOIN sla_targets s ON s.priority = t.priority CROSS JOIN as_of a;
 

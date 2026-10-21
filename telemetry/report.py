@@ -58,15 +58,20 @@ def collect(conn, weeks=None):
     The backlog is a snapshot of tickets open at the end of the data and is never filtered.
     """
     q = lambda sql: [tuple(float(v) if isinstance(v, Decimal) else v for v in r) for r in conn.execute(sql).fetchall()]
-    last = q("SELECT MAX(week) FROM weekly_summary")[0][0]
+    first, last = q("SELECT MIN(week), MAX(week) FROM weekly_summary")[0]
     if last is None:
         raise ValueError("no tickets loaded, nothing to report")
-    cutoff = (date.fromisoformat(last) - timedelta(days=7 * (weeks - 1))).isoformat() if weeks else None
+    start = date.fromisoformat(first)
+    cutoff = None
+    # a limit that reaches back past the first week with tickets changes nothing, so no empty weeks are added before the data
+    if weeks and weeks < (date.fromisoformat(last) - start).days // 7 + 1:
+        start = date.fromisoformat(last) - timedelta(days=7 * (weeks - 1))
+        cutoff = start.isoformat()
     # the cutoff is a date this code built, never user text, so it is safe to put in the SQL
     where = f" WHERE week >= '{cutoff}'" if cutoff else ""
     found = q(f"SELECT {', '.join(WEEKLY_COLUMNS)} FROM weekly_summary{where} ORDER BY week")
     # fill weeks without tickets so the charts keep a true time axis and "latest 8 weeks" is 8 calendar weeks
-    known, filled, day = {w[0]: w for w in found}, [], date.fromisoformat(cutoff or found[0][0])
+    known, filled, day = {w[0]: w for w in found}, [], start
     while day <= date.fromisoformat(last):
         filled.append(known.get(day.isoformat(), (day.isoformat(), 0, 0, None, None, None, None, None)))
         day += timedelta(days=7)
@@ -75,11 +80,13 @@ def collect(conn, weeks=None):
               f"ROUND(100.0 * AVG(resolution_met), 1) FROM ticket_facts{where}")[0]
     return {
         "weeks": filled, "total": total, "limit": weeks,
-        "weekly_category": q(f"SELECT {', '.join(WEEKLY_CATEGORY_COLUMNS)} FROM weekly_category_summary{where} "
-                             "ORDER BY week, category"),
-        "by_cat": q("SELECT category, COUNT(*), ROUND(AVG(response_hours), 1), ROUND(AVG(resolution_hours), 1), "
-                    "ROUND(100.0 * AVG(response_met), 1), ROUND(100.0 * AVG(resolution_met), 1) AS res_sla "
-                    f"FROM ticket_facts{where} GROUP BY category ORDER BY res_sla NULLS LAST"),
+        # sorted here, not in SQL, so text order (PostgreSQL locale against SQLite binary) and ties cannot differ
+        "weekly_category": sorted(q(f"SELECT {', '.join(WEEKLY_CATEGORY_COLUMNS)} FROM weekly_category_summary{where}"),
+                                  key=lambda r: (r[0], r[1])),
+        "by_cat": sorted(q("SELECT category, COUNT(*), ROUND(AVG(response_hours), 1), ROUND(AVG(resolution_hours), 1), "
+                           "ROUND(100.0 * AVG(response_met), 1), ROUND(100.0 * AVG(resolution_met), 1) "
+                           f"FROM ticket_facts{where} GROUP BY category"),
+                         key=lambda r: (r[5] is None, r[5] or 0, r[0])),
         "backlog": q("SELECT bucket, tickets FROM backlog_age_buckets ORDER BY bucket"),
         "as_of": q("SELECT substr(CAST(ts AS TEXT), 1, 10) FROM as_of")[0][0],
     }

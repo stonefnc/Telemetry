@@ -153,8 +153,8 @@ def test_each_view_matches_sqlite_on_the_same_generated_data(tmp_path, pg, view)
     apply_views(pg)
     got, want = _rows(pg, VIEW_QUERIES[view]), _rows(_sqlite(p), VIEW_QUERIES[view])
     assert len(got) == len(want)
-    # SQLite computes hours from floating point julian days, so a value that sits exactly on a rounding tie
-    # (0.555 hours) can land one hundredth lower than PostgreSQL's exact numeric result. Everything else is equal.
+    # SQLite averages floating point hours, so a value that sits exactly on a rounding tie (0.555 hours)
+    # can land one hundredth lower than PostgreSQL's exact numeric result. Everything else is equal.
     assert got == [pytest.approx(w, abs=0.0101) if any(isinstance(v, float) for v in w) else w for w in want]
 
 
