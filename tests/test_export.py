@@ -162,3 +162,24 @@ def test_command_line_export_and_weeks(tmp_path, monkeypatch):
 def test_command_line_rejects_bad_options(args, message):
     with pytest.raises(SystemExit, match=message):
         main(["report", *args])
+
+
+@pytest.mark.parametrize("trigger", ["=", "+", "-", "@", "\t", "\r"])
+def test_csv_export_neutralises_formula_trigger(tmp_path, trigger):
+    data = {"weeks": [], "total": (1, 1, 1.0, 1.0, 1.0, 1.0), "weekly_category": [],
+            "backlog": [(f"{trigger}cmd|calc", 3)]}
+    write_exports(data, tmp_path, formats=("csv", "json"))
+    with open(tmp_path / "backlog_age_buckets.csv", newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    assert rows[1] == [f"'{trigger}cmd|calc", "3"]
+    # the JSON export keeps the original value
+    assert json.loads((tmp_path / "backlog_age_buckets.json").read_text())[0]["bucket"] == f"{trigger}cmd|calc"
+
+
+def test_csv_export_keeps_negative_numbers_as_numbers(tmp_path):
+    data = {"weeks": [("2024-01-01", -2, 0, -0.5, None, None, None, None)], "total": (1, 1, 1.0, 1.0, 1.0, 1.0),
+            "weekly_category": [], "backlog": []}
+    write_exports(data, tmp_path, formats=("csv",))
+    with open(tmp_path / "weekly_summary.csv", newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    assert rows[1][:4] == ["2024-01-01", "-2", "0", "-0.5"]

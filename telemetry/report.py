@@ -100,6 +100,19 @@ def export_tables(data):
             "backlog_age_buckets": (BACKLOG_COLUMNS, data["backlog"])}
 
 
+FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(cell):
+    """Prefix text that a spreadsheet could run as a formula with an apostrophe.
+
+    Only str cells are touched. Numbers arrive as int or float, so a negative value stays a plain number.
+    """
+    if isinstance(cell, str) and cell.startswith(FORMULA_TRIGGERS):
+        return "'" + cell
+    return cell
+
+
 def write_exports(data, folder, formats=("csv", "json")):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -109,7 +122,7 @@ def write_exports(data, folder, formats=("csv", "json")):
             with open(folder / f"{name}.csv", "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f)
                 w.writerow(columns)
-                w.writerows(rows)  # None is written as an empty cell
+                w.writerows([_csv_safe(c) for c in r] for r in rows)  # None is written as an empty cell
             written.append(f"{name}.csv")
         if "json" in formats:
             (folder / f"{name}.json").write_text(

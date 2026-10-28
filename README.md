@@ -34,6 +34,8 @@ Options: `--weeks`, `--export`, `--export-format` (report, see below), `--csv` (
 
 weekly_summary includes weeks with no tickets, with 0 for created and resolved and empty cells (null in JSON) for the rest. weekly_category_summary has only the weeks and categories that have tickets. The by-category table shown in the HTML is an overall roll-up per category and is not exported. JSON files are a list of objects keyed by column name. Percentages are 0 to 100, close_rate is 0 to 1 and hours are decimal hours.
 
+In the CSV files, a text cell that starts with =, +, - or @, or with a tab or carriage return, gets a leading apostrophe so a spreadsheet shows it as text instead of running it as a formula. Numeric cells are not changed, so a negative number stays a number, and the JSON files are not changed.
+
 ## What it does
 
 1. Generator: about 2,500 tickets over two school years (2023-08-07 to 2025-06-27). Categories are device repair, iPad setup, Chromebook loss, password reset, Wi-Fi, printing and account changes. August and September are busier and slower, summer and the holidays are quiet, and some tickets miss their SLA. Tickets still unresolved at the end date stay open.
